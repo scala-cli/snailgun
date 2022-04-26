@@ -11,4 +11,4 @@ import java.io.OutputStream
  * tracing the protocol behaviour and reporting errors. The logger can be
  * backed by some of these user-defined streams but it isn't a requirement.
  */
-case class Streams(in: InputStream, out: OutputStream, err: OutputStream)
+case class Streams(in: Option[InputStream], out: OutputStream, err: OutputStream)

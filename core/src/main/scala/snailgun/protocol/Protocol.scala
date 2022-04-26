@@ -52,7 +52,6 @@ class Protocol(
   private val exitCode: AtomicInteger = new AtomicInteger(-1)
   private val isRunning: AtomicBoolean = new AtomicBoolean(false)
   private val anyThreadFailed: AtomicBoolean = new AtomicBoolean(false)
-  private val sendStdinSemaphore: Semaphore = new Semaphore(0)
   private val waitTermination: Semaphore = new Semaphore(0)
 
   val NailgunFileSeparator = java.io.File.separator
@@ -81,7 +80,7 @@ class Protocol(
     val in = new DataInputStream(in0)
     val out = new DataOutputStream(out0)
 
-    val sendStdin = createStdinThread(out)
+    val sendStdinOpt = createStdinThread(out)
     val scheduleHeartbeat = createHeartbeatAndShutdownThread(in, out)
     // Start heartbeat thread before sending command as python and C clients do
     scheduleHeartbeat.start()
@@ -100,7 +99,7 @@ class Protocol(
 
       // Start thread sending stdin right after sending command
       logger.debug("Starting thread to read stdin...")
-      sendStdin.start()
+      sendStdinOpt.foreach(_._1.start())
 
       while (exitCode.get() == -1) {
         val action = processChunkFromServer(in)
@@ -117,7 +116,7 @@ class Protocol(
               printException(error)
             }
           case Action.Print(bytes, out) => out.write(bytes)
-          case Action.SendStdin => sendStdinSemaphore.release()
+          case Action.SendStdin => sendStdinOpt.foreach(_._2.release())
         }
       }
     } catch {
@@ -131,16 +130,16 @@ class Protocol(
       isRunning.compareAndSet(true, false)
       // Release with max to guarantee all `acquire` return
       waitTermination.release(Int.MaxValue)
-      // Release stdin semaphore if `acquire` was done by `sendStdin` thread
-      sendStdinSemaphore.release(Int.MaxValue)
+      // Release stdin semaphore if `acquire` was done by `sendStdinOpt` thread
+      sendStdinOpt.foreach(_._2.release(Int.MaxValue))
     }
 
     if (stopFurtherProcessing.get()) {
-      sendStdin.interrupt()
+      sendStdinOpt.foreach(_._1.interrupt())
     }
 
     logger.debug("Waiting for stdin thread to finish...")
-    sendStdin.join()
+    sendStdinOpt.foreach(_._1.join())
     logger.debug("Waiting for heartbeat thread to finish...")
     scheduleHeartbeat.join()
     logger.debug("Returning exit code...")
@@ -233,38 +232,42 @@ class Protocol(
     }
   }
 
-  def createStdinThread(out: DataOutputStream): Thread = {
-    daemonThread { () =>
-      val reader = new BufferedReader(new InputStreamReader(streams.in))
-      def shouldStop = !isRunning.get() || stopFurtherProcessing.get()
-      try {
-        var continue: Boolean = true
-        while (continue) {
-          if (shouldStop) {
-            continue = false
-          } else {
-            // Don't start sending input until SendStdin action is received from server
-            sendStdinSemaphore.acquire()
+  def createStdinThread(out: DataOutputStream): Option[(Thread, Semaphore)] = {
+    streams.in.map { in =>
+      val sendStdinSemaphore = new Semaphore(0)
+      val thread = daemonThread { () =>
+        val reader = new BufferedReader(new InputStreamReader(in))
+        def shouldStop = !isRunning.get() || stopFurtherProcessing.get()
+        try {
+          var continue: Boolean = true
+          while (continue) {
             if (shouldStop) {
               continue = false
             } else {
-              val line = reader.readLine()
+              // Don't start sending input until SendStdin action is received from server
+              sendStdinSemaphore.acquire()
               if (shouldStop) {
                 continue = false
-              } else if (line.length() == 0) {
-                () // Ignore if read line is empty
               } else {
-                swallowExceptionsIfServerFinished {
-                  out.synchronized {
-                    if (line == null) sendChunk(ChunkTypes.StdinEOF, "", out)
-                    else sendChunk(ChunkTypes.Stdin, line, out)
+                val line = reader.readLine()
+                if (shouldStop) {
+                  continue = false
+                } else if (line.length() == 0) {
+                  () // Ignore if read line is empty
+                } else {
+                  swallowExceptionsIfServerFinished {
+                    out.synchronized {
+                      if (line == null) sendChunk(ChunkTypes.StdinEOF, "", out)
+                      else sendChunk(ChunkTypes.Stdin, line, out)
+                    }
                   }
                 }
               }
             }
           }
-        }
-      } finally reader.close()
+        } finally reader.close()
+      }
+      (thread, sendStdinSemaphore)
     }
   }
 
