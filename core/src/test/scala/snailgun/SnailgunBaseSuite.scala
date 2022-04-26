@@ -249,7 +249,7 @@ class SnailgunBaseSuite extends BaseSuite {
     test(testName) {
       try {
         val out = new ByteArrayOutputStream()
-        val streams = Streams(in, out, out)
+        val streams = Streams(Some(in), out, out)
         withRunningServer(streams, logger) { client =>
           op(TestInputs(streams, logger, stop, client, out))
         }

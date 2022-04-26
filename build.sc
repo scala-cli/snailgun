@@ -12,9 +12,6 @@ def scalaVersions = Seq("2.12.11", "2.13.4")
 object core extends Cross[Core](scalaVersions: _*)
 
 class Core(val crossScalaVersion: String) extends CrossSbtModule with SnailgunPublishModule {
-  def ivyDeps = super.ivyDeps() ++ Seq(
-    ivy"net.java.dev.jna:jna-platform:5.6.0"
-  )
   object test extends Tests {
     def testFramework = "utest.runner.Framework"
     def ivyDeps = super.ivyDeps() ++ Seq(
