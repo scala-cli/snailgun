@@ -205,7 +205,7 @@ class Protocol(
       in: DataInputStream,
       out: DataOutputStream
   ): Thread = {
-    daemonThread { () =>
+    daemonThread("snailgun-heartbeat") { () =>
       var continue: Boolean = true
       while (continue) {
         val acquired = waitTermination.tryAcquire(
@@ -235,7 +235,7 @@ class Protocol(
   def createStdinThread(out: DataOutputStream): Option[(Thread, Semaphore)] = {
     streams.in.map { in =>
       val sendStdinSemaphore = new Semaphore(0)
-      val thread = daemonThread { () =>
+      val thread = daemonThread("snailgun-stdin") { () =>
         val reader = new BufferedReader(new InputStreamReader(in))
         def shouldStop = !isRunning.get() || stopFurtherProcessing.get()
         try {
@@ -299,8 +299,8 @@ class Protocol(
     logger.trace(exception)
   }
 
-  private def daemonThread(run0: () => Unit): Thread = {
-    val t = new Thread {
+  private def daemonThread(name: String)(run0: () => Unit): Thread = {
+    val t = new Thread(name) {
       override def run(): Unit = {
         try run0()
         catch {
