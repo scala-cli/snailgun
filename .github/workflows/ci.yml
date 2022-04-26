@@ -8,8 +8,13 @@ on:
   pull_request:
 
 jobs:
-  tests:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    name: Test ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -19,26 +24,81 @@ jobs:
       - uses: coursier/setup-action@v1.2.0
         with:
           jvm: 8
-      - run: ./mill -i __.test
+      - name: Compile and test
+        run: ./mill __.test
+      - name: Compile to native
+        run: ./mill show nativeImage
+      - name: Copy JVM launcher
+        run: ./mill -i ci.copyJvmLauncher artifacts/
+        if: runner.os == 'Linux'
+      - name: Copy launcher
+        run: ./mill -i ci.copyLauncher artifacts/
+      - uses: actions/upload-artifact@v3
+        with:
+          name: launchers
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 2
+
+  format:
+    runs-on: ubuntu-latest
+    name: Format
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6.3
+      - uses: coursier/setup-action@v1.2.0-M3
+        with:
+          jvm: 8
+          apps: scalafmt
+      - name: Check formatting
+        run: scalafmt --test
 
   publish:
-    needs: [tests]
+    needs: [format, test]
+    runs-on: ubuntu-latest
+    name: Publish
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
+      - uses: coursier/cache-action@v6.3
+      - uses: coursier/setup-action@v1.2.0-M3
+        with:
+          jvm: 8
+      - name: GPG setup
+        run: .github/scripts/gpg-setup.sh
+        env:
+          PGP_SECRET: ${{ secrets.PUBLISH_SECRET_KEY }}
+      - name: Publish
+        run: ./mill ci.publishSonatype __.publishArtifacts
+        env:
+          PGP_PASSWORD: ${{ secrets.PUBLISH_SECRET_KEY_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.PUBLISH_USER }}
+          SONATYPE_PASSWORD: ${{ secrets.PUBLISH_PASSWORD }}
+
+  launchers:
+    needs: [format, test]
+    name: Upload launchers
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
       with:
+        submodules: true
         fetch-depth: 0
     - uses: coursier/cache-action@v6.3
     - uses: coursier/setup-action@v1.2.0
       with:
         jvm: 8
-    - name: GPG setup
-      run: .github/scripts/gpg-setup.sh
+    - uses: actions/download-artifact@v3
+      with:
+        name: launchers
+        path: artifacts/
+    - run: ./mill -i ci.uploadLaunchers artifacts/
       env:
-        PGP_SECRET: ${{ secrets.PUBLISH_SECRET_KEY }}
-    - run: ./mill -i publishSonatype __.publishArtifacts
-      env:
-        PGP_PASSWORD: ${{ secrets.PUBLISH_SECRET_KEY_PASSWORD }}
-        SONATYPE_PASSWORD: ${{ secrets.PUBLISH_PASSWORD }}
-        SONATYPE_USERNAME: ${{ secrets.PUBLISH_USER }}
+        UPLOAD_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

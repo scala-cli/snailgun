@@ -77,7 +77,7 @@ abstract class Cli(in: InputStream, out: PrintStream, err: PrintStream) {
           out.println(s"Nailgun v${Defaults.Version}")
 
         def process(cmd: String, cmdArgs: Array[String]) = {
-          val streams = Streams(in, out, err)
+          val streams = Streams(Some(in), out, err)
           val hostServer =
             if (setServer) params.nailgunServer
             else Defaults.env.getOrElse("NAILGUN_SERVER", params.nailgunServer)

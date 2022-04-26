@@ -2,14 +2,25 @@ import mill._
 import mill.scalalib._
 import mill.scalalib.publish._
 
+import $ivy.`io.get-coursier::coursier-launcher:2.1.0-M2`
+
 import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version::0.1.4`
 import de.tobiasroeser.mill.vcs.version._
 
-import scala.concurrent.duration._
+import $ivy.`io.github.alexarchambault.mill::mill-native-image::0.1.19`
+import io.github.alexarchambault.millnativeimage.NativeImage
 
-def scalaVersions = Seq("2.12.11", "2.13.4")
+import $ivy.`io.github.alexarchambault.mill::mill-native-image-upload:0.1.19`
+import io.github.alexarchambault.millnativeimage.upload.Upload
+
+import scala.concurrent.duration._
+import scala.util.Properties
+
+def scalaVersions = Seq("2.12.15", "2.13.8")
+def mainScalaVersion = scalaVersions.last
 
 object core extends Cross[Core](scalaVersions: _*)
+object cli extends Cross[Cli](scalaVersions: _*)
 
 class Core(val crossScalaVersion: String) extends CrossSbtModule with SnailgunPublishModule {
   object test extends Tests {
@@ -25,6 +36,90 @@ class Core(val crossScalaVersion: String) extends CrossSbtModule with SnailgunPu
 }
 
 def ghOrg = "scala-cli"
+class Cli(val crossScalaVersion: String)
+    extends CrossSbtModule
+    with NativeImage
+    with SnailgunPublishModule {
+  def moduleDeps = Seq(
+    core()
+  )
+  def ivyDeps = super.ivyDeps() ++ Seq(
+    ivy"com.github.scopt::scopt:4.0.0-RC2"
+  )
+  def mainClass = Some("snailgun.Cli")
+
+  def nativeImageClassPath = runClasspath()
+  def nativeImageMainClass = mainClass().getOrElse {
+    sys.error("No main class found")
+  }
+  def nativeImageGraalVmJvmId = "graalvm-java17:22.1.0"
+
+  def transitiveJars: T[Agg[PathRef]] = {
+
+    def allModuleDeps(todo: List[JavaModule]): List[JavaModule] =
+      todo match {
+        case Nil => Nil
+        case h :: t =>
+          h :: allModuleDeps(h.moduleDeps.toList ::: t)
+      }
+
+    T {
+      mill.define.Target.traverse(allModuleDeps(this :: Nil).distinct)(m => T.task(m.jar()))()
+    }
+  }
+
+  def jarClassPath = T {
+    val cp = runClasspath() ++ transitiveJars()
+    cp.filter(ref => os.exists(ref.path) && !os.isDir(ref.path))
+  }
+
+  def standaloneLauncher = T {
+
+    val cachePath = os.Path(coursier.cache.FileCache().location, os.pwd)
+    def urlOf(path: os.Path): Option[String] =
+      if (path.startsWith(cachePath)) {
+        val segments = path.relativeTo(cachePath).segments
+        val url = segments.head + "://" + segments.tail.mkString("/")
+        Some(url)
+      } else None
+
+    import coursier.launcher.{
+      AssemblyGenerator,
+      BootstrapGenerator,
+      ClassPathEntry,
+      Parameters,
+      Preamble
+    }
+    import scala.util.Properties.isWin
+    val cp = jarClassPath().map(_.path)
+    val mainClass0 = mainClass().getOrElse(sys.error("No main class"))
+
+    val dest = T.ctx().dest / (if (isWin) "launcher.bat" else "launcher")
+
+    val preamble = Preamble()
+      .withOsKind(isWin)
+      .callsItself(isWin)
+    val entries = cp.map { path =>
+      urlOf(path) match {
+        case None =>
+          val content = os.read.bytes(path)
+          val name = path.last
+          ClassPathEntry.Resource(name, os.mtime(path), content)
+        case Some(url) => ClassPathEntry.Url(url)
+      }
+    }
+    val loaderContent = coursier.launcher.ClassLoaderContent(entries)
+    val params = Parameters
+      .Bootstrap(Seq(loaderContent), mainClass0)
+      .withDeterministic(true)
+      .withPreamble(preamble)
+
+    BootstrapGenerator.generate(params, dest.toNIO)
+
+    PathRef(dest)
+  }
+}
+
 def ghName = "snailgun"
 trait SnailgunPublishModule extends PublishModule {
   import mill.scalalib.publish._
@@ -100,57 +195,103 @@ private def finalPublishVersion = {
     }
 }
 
-def publishSonatype(tasks: mill.main.Tasks[PublishModule.PublishData]) = T.command {
-  publishSonatype0(
-    data = define.Target.sequence(tasks.value)(),
-    log = T.ctx().log
-  )
+def nativeImage = T {
+  cli(mainScalaVersion).nativeImage()
 }
 
-private def publishSonatype0(
-    data: Seq[PublishModule.PublishData],
-    log: mill.api.Logger
-): Unit = {
-
-  val credentials = sys.env("SONATYPE_USERNAME") + ":" + sys.env("SONATYPE_PASSWORD")
-  val pgpPassword = sys.env("PGP_PASSWORD")
-  val timeout = 10.minutes
-
-  val artifacts = data.map { case PublishModule.PublishData(a, s) =>
-    (s.map { case (p, f) => (p.path, f) }, a)
-  }
-
-  val isRelease = {
-    val versions = artifacts.map(_._2.version).toSet
-    val set = versions.map(!_.endsWith("-SNAPSHOT"))
-    assert(
-      set.size == 1,
-      s"Found both snapshot and non-snapshot versions: ${versions.toVector.sorted.mkString(", ")}"
+object ci extends Module {
+  def publishSonatype(tasks: mill.main.Tasks[PublishModule.PublishData]) = T.command {
+    publishSonatype0(
+      data = define.Target.sequence(tasks.value)(),
+      log = T.ctx().log
     )
-    set.head
   }
-  val publisher = new scalalib.publish.SonatypePublisher(
-    uri = "https://s01.oss.sonatype.org/service/local",
-    snapshotUri = "https://s01.oss.sonatype.org/content/repositories/snapshots",
-    credentials = credentials,
-    signed = true,
-    // format: off
-    gpgArgs = Seq(
-      "--detach-sign",
-      "--batch=true",
-      "--yes",
-      "--pinentry-mode", "loopback",
-      "--passphrase", pgpPassword,
-      "--armor",
-      "--use-agent"
-    ),
-    // format: on
-    readTimeout = timeout.toMillis.toInt,
-    connectTimeout = timeout.toMillis.toInt,
-    log = log,
-    awaitTimeout = timeout.toMillis.toInt,
-    stagingRelease = isRelease
-  )
 
-  publisher.publishAll(isRelease, artifacts: _*)
+  private def publishSonatype0(
+      data: Seq[PublishModule.PublishData],
+      log: mill.api.Logger
+  ): Unit = {
+
+    val credentials = sys.env("SONATYPE_USERNAME") + ":" + sys.env("SONATYPE_PASSWORD")
+    val pgpPassword = sys.env("PGP_PASSWORD")
+    val timeout = 10.minutes
+
+    val artifacts = data.map { case PublishModule.PublishData(a, s) =>
+      (s.map { case (p, f) => (p.path, f) }, a)
+    }
+
+    val isRelease = {
+      val versions = artifacts.map(_._2.version).toSet
+      val set = versions.map(!_.endsWith("-SNAPSHOT"))
+      assert(
+        set.size == 1,
+        s"Found both snapshot and non-snapshot versions: ${versions.toVector.sorted.mkString(", ")}"
+      )
+      set.head
+    }
+    val publisher = new scalalib.publish.SonatypePublisher(
+      uri = "https://s01.oss.sonatype.org/service/local",
+      snapshotUri = "https://s01.oss.sonatype.org/content/repositories/snapshots",
+      credentials = credentials,
+      signed = true,
+      // format: off
+      gpgArgs = Seq(
+        "--detach-sign",
+        "--batch=true",
+        "--yes",
+        "--pinentry-mode", "loopback",
+        "--passphrase", pgpPassword,
+        "--armor",
+        "--use-agent"
+      ),
+      // format: on
+      readTimeout = timeout.toMillis.toInt,
+      connectTimeout = timeout.toMillis.toInt,
+      log = log,
+      awaitTimeout = timeout.toMillis.toInt,
+      stagingRelease = isRelease
+    )
+
+    publisher.publishAll(isRelease, artifacts: _*)
+  }
+
+  def copyLauncher(directory: String = "artifacts") = T.command {
+    val nativeLauncher = cli(mainScalaVersion).nativeImage().path
+    Upload.copyLauncher(
+      nativeLauncher,
+      directory,
+      "snailgun",
+      compress = true
+    )
+  }
+
+  def copyJvmLauncher(directory: String = "artifacts") = T.command {
+    val platformExecutableJarExtension = if (Properties.isWin) ".bat" else ""
+    val launcher = cli(mainScalaVersion).standaloneLauncher().path
+    os.copy(
+      launcher,
+      os.Path(directory, os.pwd) / s"snailgun$platformExecutableJarExtension",
+      createFolders = true,
+      replaceExisting = true
+    )
+  }
+
+  private def ghToken(): String = Option(System.getenv("UPLOAD_GH_TOKEN")).getOrElse {
+    sys.error("UPLOAD_GH_TOKEN not set")
+  }
+  def uploadLaunchers(directory: String = "artifacts") = T.command {
+    val version = cli(mainScalaVersion).publishVersion()
+
+    val path = os.Path(directory, os.pwd)
+    val launchers = os.list(path).filter(os.isFile(_)).map { path =>
+      path.toNIO -> path.last
+    }
+    val (tag, overwriteAssets) =
+      if (version.endsWith("-SNAPSHOT")) ("nightly", true)
+      else ("v" + version, false)
+    System.err.println(s"Uploading to tag $tag (overwrite assets: $overwriteAssets)")
+    Upload.upload(ghOrg, ghName, ghToken(), tag, dryRun = false, overwrite = overwriteAssets)(
+      launchers: _*
+    )
+  }
 }
