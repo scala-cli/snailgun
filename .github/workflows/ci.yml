@@ -1,45 +1,44 @@
-name: Continuous Integration
+name: CI
 on:
   push:
     branches:
       - master
+    tags:
+      - "v*"
   pull_request:
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        jdk: [graalvm-ce-java11@20.3.0]
-    name: Test ${{ matrix.os }} -- ${{ matrix.jdk }}
+  tests:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
+          fetch-depth: 0
           submodules: true
-      - uses: coursier/cache-action@v3
-      - uses: olafurpg/setup-scala@v10
+      - uses: coursier/cache-action@v6.3
+      - uses: coursier/setup-action@v1.2.0-M3
         with:
-          java-version: ${{ matrix.jdk }}
-      - uses: actions/setup-node@v1
-        with:
-          node-version: "10.x"
-      - name: Set up environment
-        run: |
-          curl -Lo coursier https://git.io/coursier-cli && chmod +x coursier && ./coursier --help
-          yarn --help
-          java -version
-        shell: bash
-      - name: Check formatting
-        if: matrix.os != 'windows-latest'
-        run: |
-          ./bin/scalafmt --test
-      - name: Compile and test jsonrpc4s
-        run: |
-          sbt "+test"
-      - name: Compile to native
-        if: matrix.os != 'windows-latest'
-        run: |
-          gu install native-image
-          sbt "snailgun-cli/graalvm-native-image:packageBin"
+          jvm: 8
+      - run: ./mill -i __.test
+
+  publish:
+    needs: [tests]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - uses: coursier/cache-action@v6.3
+    - uses: coursier/setup-action@v1.2.0-M3
+      with:
+        jvm: 8
+    - name: GPG setup
+      run: .github/scripts/gpg-setup.sh
+      env:
+        PGP_SECRET: ${{ secrets.PUBLISH_SECRET_KEY }}
+    - run: ./mill -i publishSonatype __.publishArtifacts
+      env:
+        PGP_PASSWORD: ${{ secrets.PUBLISH_SECRET_KEY_PASSWORD }}
+        SONATYPE_PASSWORD: ${{ secrets.PUBLISH_PASSWORD }}
+        SONATYPE_USERNAME: ${{ secrets.PUBLISH_USER }}
