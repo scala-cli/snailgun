@@ -57,8 +57,7 @@ private def computePublishVersion(state: VcsState, simple: Boolean): String =
               Some(tag.take(idx + 1) + (tag.drop(idx + 1).toInt + 1).toString + "-SNAPSHOT")
             else
               None
-          }
-          else {
+          } else {
             val idx = tag.indexOf("-")
             if (idx >= 0) Some(tag.take(idx) + "+" + tag.drop(idx + 1) + "-SNAPSHOT")
             else None
@@ -68,9 +67,13 @@ private def computePublishVersion(state: VcsState, simple: Boolean): String =
       Some(versionOrEmpty)
         .filter(_.nonEmpty)
         .getOrElse(state.format())
-    }
-    else {
-      val rawVersion = os.proc("git", "describe", "--tags").call().out.text().trim
+    } else {
+      val rawVersion = os
+        .proc("git", "describe", "--tags")
+        .call()
+        .out
+        .text()
+        .trim
         .stripPrefix("v")
         .replace("latest", "0.0.0")
         .replace("nightly", "0.0.0")
@@ -79,8 +82,7 @@ private def computePublishVersion(state: VcsState, simple: Boolean): String =
       else rawVersion
     }
   else
-    state
-      .lastTag
+    state.lastTag
       .getOrElse(state.format())
       .stripPrefix("v")
 
@@ -106,22 +108,21 @@ def publishSonatype(tasks: mill.main.Tasks[PublishModule.PublishData]) = T.comma
 }
 
 private def publishSonatype0(
-  data: Seq[PublishModule.PublishData],
-  log: mill.api.Logger
+    data: Seq[PublishModule.PublishData],
+    log: mill.api.Logger
 ): Unit = {
 
   val credentials = sys.env("SONATYPE_USERNAME") + ":" + sys.env("SONATYPE_PASSWORD")
   val pgpPassword = sys.env("PGP_PASSWORD")
-  val timeout     = 10.minutes
+  val timeout = 10.minutes
 
-  val artifacts = data.map {
-    case PublishModule.PublishData(a, s) =>
-      (s.map { case (p, f) => (p.path, f) }, a)
+  val artifacts = data.map { case PublishModule.PublishData(a, s) =>
+    (s.map { case (p, f) => (p.path, f) }, a)
   }
 
   val isRelease = {
     val versions = artifacts.map(_._2.version).toSet
-    val set      = versions.map(!_.endsWith("-SNAPSHOT"))
+    val set = versions.map(!_.endsWith("-SNAPSHOT"))
     assert(
       set.size == 1,
       s"Found both snapshot and non-snapshot versions: ${versions.toVector.sorted.mkString(", ")}"

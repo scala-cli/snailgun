@@ -188,12 +188,12 @@ object BuildImplementation {
     }
 
     /**
-     * This setting figures out whether the version is a snapshot or not and configures
-     * the source and doc artifacts that are published by the build.
+     * This setting figures out whether the version is a snapshot or not and configures the source
+     * and doc artifacts that are published by the build.
      *
-     * Snapshot is a term with no clear definition. In this code, a snapshot is a revision
-     * that is dirty, e.g. has time metadata in its representation. In those cases, the
-     * build will not publish doc and source artifacts by any of the publishing actions.
+     * Snapshot is a term with no clear definition. In this code, a snapshot is a revision that is
+     * dirty, e.g. has time metadata in its representation. In those cases, the build will not
+     * publish doc and source artifacts by any of the publishing actions.
      */
     def publishDocAndSourceArtifact(
         info: Option[GitDescribeOutput],
