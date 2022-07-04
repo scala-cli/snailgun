@@ -44,7 +44,7 @@ class Cli(val crossScalaVersion: String)
     core()
   )
   def ivyDeps = super.ivyDeps() ++ Seq(
-    ivy"com.github.scopt::scopt:4.0.0-RC2"
+    ivy"com.github.alexarchambault::case-app:2.1.0-M14"
   )
   def mainClass = Some("snailgun.Cli")
 
