@@ -145,6 +145,7 @@ private def computePublishVersion(state: VcsState, simple: Boolean): String =
         .filter(_ != "latest")
         .filter(_ != "nightly")
         .map(_.stripPrefix("v"))
+        .map(_.takeWhile(c => c == '.' || c.isDigit))
         .flatMap { tag =>
           if (simple) {
             val idx = tag.lastIndexOf(".")
