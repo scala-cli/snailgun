@@ -20,7 +20,7 @@ def scalaVersions = Seq("2.12.15", "2.13.8")
 def mainScalaVersion = scalaVersions.last
 
 object core extends Cross[Core](scalaVersions: _*)
-object cli extends Cross[Cli](scalaVersions: _*)
+object cli extends Cli
 
 class Core(val crossScalaVersion: String) extends CrossSbtModule with SnailgunPublishModule {
   object test extends Tests {
@@ -36,12 +36,10 @@ class Core(val crossScalaVersion: String) extends CrossSbtModule with SnailgunPu
 }
 
 def ghOrg = "scala-cli"
-class Cli(val crossScalaVersion: String)
-    extends CrossSbtModule
-    with NativeImage
-    with SnailgunPublishModule {
+trait Cli extends SbtModule with NativeImage with SnailgunPublishModule {
+  def scalaVersion = mainScalaVersion
   def moduleDeps = Seq(
-    core()
+    core(mainScalaVersion)
   )
   def ivyDeps = super.ivyDeps() ++ Seq(
     ivy"com.github.alexarchambault::case-app:2.1.0-M14"
@@ -197,7 +195,7 @@ private def finalPublishVersion = {
 }
 
 def nativeImage = T {
-  cli(mainScalaVersion).nativeImage()
+  cli.nativeImage()
 }
 
 object ci extends Module {
@@ -257,7 +255,7 @@ object ci extends Module {
   }
 
   def copyLauncher(directory: String = "artifacts") = T.command {
-    val nativeLauncher = cli(mainScalaVersion).nativeImage().path
+    val nativeLauncher = cli.nativeImage().path
     Upload.copyLauncher(
       nativeLauncher,
       directory,
@@ -268,7 +266,7 @@ object ci extends Module {
 
   def copyJvmLauncher(directory: String = "artifacts") = T.command {
     val platformExecutableJarExtension = if (Properties.isWin) ".bat" else ""
-    val launcher = cli(mainScalaVersion).standaloneLauncher().path
+    val launcher = cli.standaloneLauncher().path
     os.copy(
       launcher,
       os.Path(directory, os.pwd) / s"snailgun$platformExecutableJarExtension",
@@ -281,7 +279,7 @@ object ci extends Module {
     sys.error("UPLOAD_GH_TOKEN not set")
   }
   def uploadLaunchers(directory: String = "artifacts") = T.command {
-    val version = cli(mainScalaVersion).publishVersion()
+    val version = cli.publishVersion()
 
     val path = os.Path(directory, os.pwd)
     val launchers = os.list(path).filter(os.isFile(_)).map { path =>
