@@ -33,7 +33,6 @@ object Cli extends CaseApp[CliOptions] {
       .orElse(Defaults.env.get("NAILGUN_PORT").map(_.toInt))
       .getOrElse(Defaults.Port)
     val client = TcpClient(hostServer, portServer)
-    val noCancel = new AtomicBoolean(false)
     val logger = new SnailgunLogger("log", out, isVerbose = options.verbose)
     val code =
       try
@@ -44,7 +43,7 @@ object Cli extends CaseApp[CliOptions] {
           Defaults.env,
           streams,
           logger,
-          noCancel,
+          new AtomicBoolean(false),
           true
         )
       catch {
