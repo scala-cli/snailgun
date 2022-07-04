@@ -44,7 +44,7 @@ trait Cli extends SbtModule with NativeImage with SnailgunPublishModule {
   def ivyDeps = super.ivyDeps() ++ Seq(
     ivy"com.github.alexarchambault::case-app:2.1.0-M14"
   )
-  def mainClass = Some("snailgun.Cli")
+  def mainClass = Some("snailgun.Snailgun")
 
   def nativeImageClassPath = runClasspath()
   def nativeImageMainClass = mainClass().getOrElse {

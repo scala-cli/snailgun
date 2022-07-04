@@ -9,9 +9,9 @@ import java.io.{InputStream, PrintStream}
 import java.net.ConnectException
 import java.util.concurrent.atomic.AtomicBoolean
 
-object Cli extends CaseApp[CliOptions] {
+object Snailgun extends CaseApp[SnailgunOptions] {
   override def stopAtFirstUnrecognized = true
-  def run(options: CliOptions, args: RemainingArgs): Unit = {
+  def run(options: SnailgunOptions, args: RemainingArgs): Unit = {
     val inOpt = if (options.hasInput) Some(System.in) else None
     val out = System.out
     val err = System.err
