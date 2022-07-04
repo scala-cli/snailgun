@@ -12,7 +12,9 @@ final case class CliOptions(
     @HelpMessage("Enable verbosity of the Nailgun client")
       verbose: Boolean = false,
     @HelpMessage("Print version of Nailgun client before running command")
-      nailgunShowVersion: Boolean = false
+      nailgunShowVersion: Boolean = false,
+    @HelpMessage("Whether to redirect stdin to the server")
+      hasInput: Boolean = true
 )
 // format: on
 

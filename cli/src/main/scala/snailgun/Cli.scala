@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 object Cli extends CaseApp[CliOptions] {
   override def stopAtFirstUnrecognized = true
   def run(options: CliOptions, args: RemainingArgs): Unit = {
-    val in = System.in
+    val inOpt = if (options.hasInput) Some(System.in) else None
     val out = System.out
     val err = System.err
 
@@ -25,7 +25,7 @@ object Cli extends CaseApp[CliOptions] {
       case cmd :: cmdArgs => (cmd, cmdArgs)
     }
 
-    val streams = Streams(Some(in), out, err)
+    val streams = Streams(inOpt, out, err)
     val hostServer = options.nailgunServer
       .orElse(Defaults.env.get("NAILGUN_SERVER"))
       .getOrElse(Defaults.Host)
