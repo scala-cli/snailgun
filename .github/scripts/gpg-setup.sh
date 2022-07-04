@@ -1,4 +1,5 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
+set -eu
 
 # from https://github.com/coursier/apps/blob/f1d2bf568bf466a98569a85c3f23c5f3a8eb5360/.github/scripts/gpg-setup.sh
 
