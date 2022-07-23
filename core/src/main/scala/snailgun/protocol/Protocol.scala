@@ -46,7 +46,6 @@ class Protocol(
     environment: Map[String, String],
     logger: Logger,
     stopFurtherProcessing: AtomicBoolean,
-    interactiveSession: Boolean,
     threadPoolOpt: Option[ExecutorService] = None
 ) {
   private val absoluteCwd = cwd.toAbsolutePath().toString
