@@ -43,8 +43,7 @@ object Snailgun extends CaseApp[SnailgunOptions] {
           Defaults.env,
           streams,
           logger,
-          new AtomicBoolean(false),
-          true
+          new AtomicBoolean(false)
         )
       catch {
         case _: ConnectException =>
